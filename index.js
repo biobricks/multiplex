@@ -17,6 +17,7 @@ var Channel = function (name, plex, opts) {
 
   this.name = name
   this.channel = 0
+  this.meta = opts.meta
   this.initiator = false
   this.chunked = !!opts.chunked
   this.halfOpen = !!opts.halfOpen
@@ -104,7 +105,9 @@ Channel.prototype._read = function () {
 Channel.prototype._open = function () {
   var buf = null
   if (Buffer.isBuffer(this.name)) buf = this.name
-  else if (this.name !== this.channel.toString()) buf = new Buffer(this.name)
+  else if (this._multiplex._objName && typeof this.meta === 'object') {
+    buf = new Buffer(JSON.stringify(this.meta))
+  } else if (this.name !== this.channel.toString()) buf = new Buffer(this.name)
   this._lazy = false
   this._multiplex._send(this.channel << 3 | 0, buf)
 }
@@ -133,6 +136,7 @@ var Multiplex = function (opts, onchannel) {
 
   this._corked = 0
   this._options = opts
+  this._objName = !!opts.objName // allow name to be object with .name property
   this._binaryName = !!opts.binaryName
   this._local = []
   this._remote = []
@@ -158,10 +162,15 @@ var Multiplex = function (opts, onchannel) {
 util.inherits(Multiplex, stream.Duplex)
 
 Multiplex.prototype.createStream = function (name, opts) {
+  opts = xtend(this._options, opts);
+  if (this._objName && typeof name === 'object') {
+      opts.meta = name;
+      name = name.name;
+  }
   if (this.destroyed) throw new Error('Multiplexer is destroyed')
   var id = this._local.indexOf(null)
   if (id === -1) id = this._local.push(null) - 1
-  var channel = new Channel(this._name(name || id.toString()), this, xtend(this._options, opts))
+  var channel = new Channel(this._name(name || id.toString()), this, opts)
   return this._addChannel(channel, id, this._local)
 }
 
@@ -288,7 +297,25 @@ Multiplex.prototype._push = function (data) {
   if (this._type === 0) { // open
     if (this.destroyed || this._finished) return
 
-    var name = this._binaryName ? data : (data.toString() || this._channel.toString())
+    var name, meta
+    if (this._binaryName) {
+      name = data;
+    } else {
+      name = data.toString() || this._channel.toString();;
+      if (this._objName) {
+        try {
+          meta = JSON.parse(data);
+          if (!meta.name) {
+            meta.name = this._channel.toString()
+          } else {
+            name = meta.name
+          }
+        } catch(err) {
+          meta = { name: name };
+        }
+      }
+    }
+
     var channel
 
     if (this._receiving && this._receiving[name]) {
@@ -296,8 +323,8 @@ Multiplex.prototype._push = function (data) {
       delete this._receiving[name]
       this._addChannel(channel, this._channel, this._list)
     } else if (this._onchannel) {
-      channel = new Channel(name, this, this._options)
-      this._onchannel(this._addChannel(channel, this._channel, this._list), channel.name)
+      channel = new Channel(name, this, xtend(this._options, {meta: meta}))
+      this._onchannel(this._addChannel(channel, this._channel, this._list), meta || channel.name)
     }
     return
   }

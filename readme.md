@@ -15,6 +15,8 @@ Returns a new multiplexer. You can use this to create sub-streams. All data writ
 Options include:
 
 * `opts.limit` - set the max allowed message size. default is no maximum
+* `opts.binaryName` - allow use of Buffers as stream names (ids)
+* `opts.objName` - allow use of Objects as stream names (ids). see example below
 
 Any other options set in `options` are used as defaults options when creating sub streams.
 
@@ -28,6 +30,18 @@ Options include:
 
 * `opts.chunked` - enables chunked mode on all streams (message framing not guaranteed)
 * `opts.halfOpen` - make channels support half open mode meaning that they can be readable but not writable and vice versa
+
+If multiplex is instantiated with opts.objName set to true then you can:
+
+```
+var stream = multiplex.createStream({
+  name: 'name_of_stream', // optional, will be generated if not set
+  my: 'extra',
+  attached: 'metadata
+})
+```
+
+and the onStream callback will receive the entire object in place of an id. You can use this to send additional meta-data to the receiver when creating streams. Only the .name property will be used as the stream name (if it is set). One caveat: Don't use this to send arbitrary objects over which you have no control. The name property _must_ either be unique or not set.
 
 ### `stream = multiplex.receiveStream(id, [options])`
 
